@@ -3,6 +3,7 @@ import { FinancialData, TaxCalculationResult, CalculationStatus, FiscalDocument,
 import { functions } from '../services/supabaseClient';
 import { Calculator, Bot, FileCheck, AlertCircle, Loader2, ArrowRight, Search, TrendingDown, TrendingUp, BarChart3, PieChart, CheckCircle2 } from 'lucide-react';
 import { BenefitRadar } from '../components/BenefitRadar';
+import { CalculationBreakdownModal } from '../components/CalculationBreakdownModal';
 
 interface TaxCalculatorProps {
     companyDocuments: FiscalDocument[];
@@ -28,6 +29,16 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ companyDocuments, 
   
   const [radarSuggestions, setRadarSuggestions] = useState<InvestmentSuggestion[]>([]);
   const [isRadarLoading, setIsRadarLoading] = useState(false);
+
+  // State for Drill-down Modal
+  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+  const [breakdownFilter, setBreakdownFilter] = useState<{key: 'pis_credits' | 'cofins_credits', title: string} | null>(null);
+
+  const openBreakdown = (key: 'pis_credits' | 'cofins_credits', title: string) => {
+    setBreakdownFilter({ key, title });
+    setIsBreakdownOpen(true);
+  };
+
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -305,10 +316,10 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ companyDocuments, 
                                                     <span className="flex items-center gap-1"><TrendingUp size={10} /> Débitos</span>
                                                     <span className="font-bold">R$ {result.pisDebits.toFixed(2)}</span>
                                                 </div>
-                                                <div className="bg-emerald-50 p-2 rounded text-emerald-700 flex flex-col">
+                                                <button onClick={() => openBreakdown('pis_credits', 'Créditos de PIS')} className="bg-emerald-50 p-2 rounded text-emerald-700 flex flex-col hover:bg-emerald-100">
                                                     <span className="flex items-center gap-1"><TrendingDown size={10} /> Créditos</span>
                                                     <span className="font-bold">R$ {result.pisCredits.toFixed(2)}</span>
-                                                </div>
+                                                </button>
                                             </div>
                                         </div>
 
@@ -322,9 +333,9 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ companyDocuments, 
                                                 <div className="bg-red-50 p-2 rounded text-red-700 flex flex-col">
                                                     <span className="font-bold">R$ {result.cofinsDebits.toFixed(2)}</span>
                                                 </div>
-                                                <div className="bg-emerald-50 p-2 rounded text-emerald-700 flex flex-col">
+                                                <button onClick={() => openBreakdown('cofins_credits', 'Créditos de COFINS')} className="bg-emerald-50 p-2 rounded text-emerald-700 flex flex-col hover:bg-emerald-100">
                                                     <span className="font-bold">R$ {result.cofinsCredits.toFixed(2)}</span>
-                                                </div>
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -462,6 +473,16 @@ export const TaxCalculator: React.FC<TaxCalculatorProps> = ({ companyDocuments, 
             )}
         </div>
       </div>
+
+       {isBreakdownOpen && breakdownFilter && (
+        <CalculationBreakdownModal
+          isOpen={isBreakdownOpen}
+          onClose={() => setIsBreakdownOpen(false)}
+          documents={companyDocuments}
+          filterKey={breakdownFilter.key as any}
+          title={breakdownFilter.title}
+        />
+      )}
     </div>
   );
 };

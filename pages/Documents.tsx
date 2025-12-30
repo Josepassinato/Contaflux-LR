@@ -1,15 +1,17 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileText, CheckCircle, Search, ArrowRight, ArrowLeft, Loader2, X, AlertCircle, Edit } from 'lucide-react';
-import { FiscalDocument, InvoiceItem, DocumentsProps, AILearning } from '../types';
+import { Upload, FileText, CheckCircle, Search, ArrowRight, ArrowLeft, Loader2, X, AlertCircle, Edit, BookOpen, Clock } from 'lucide-react';
+import { FiscalDocument, InvoiceItem, DocumentsProps, AILearning, AuditEntry } from '../types';
 import { documentService } from '../services/supabaseClient';
 import { CREDIT_CSTS } from '../services/taxEngine';
+import { fiscalMapping } from '../services/fiscalMapping';
 
 
-export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUploadSuccess, onAddLearning }) => {
+export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUploadSuccess, onAddLearning, user }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMessage, setImportMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<FiscalDocument | null>(null);
+  const [activeTab, setActiveTab] = useState<'items' | 'audit'>('items');
 
   const [editingItem, setEditingItem] = useState<InvoiceItem | null>(null);
   const [correctionForm, setCorrectionForm] = useState({ cstPis: '', cstCofins: '', cfop: '', justification: '' });
@@ -196,14 +198,15 @@ export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUp
   };
 
   const handleSaveCorrection = () => {
-    if (!editingItem || !correctionForm.justification) {
+    if (!editingItem || !correctionForm.justification || !user) {
       alert("A justificativa é obrigatória para o aprendizado da IA.");
       return;
     }
 
     const learning: Omit<AILearning, 'id' | 'created_at'> = {
       company_id: companyId,
-      learning_type: 'cst_correction', // Can be more specific later
+      user_id: user.id,
+      learning_type: 'cst_correction', 
       context: {
         itemName: editingItem.name,
         itemNCM: editingItem.ncm,
@@ -248,8 +251,9 @@ export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUp
             />
             <button 
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isProcessing}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 shadow-sm transition-all disabled:opacity-50 w-full md:w-auto"
+                disabled={isProcessing || user.role === 'employee'}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full md:w-auto"
+                title={user.role === 'employee' ? 'Permissão insuficiente para upload' : 'Fazer upload de XMLs'}
             >
                 <Upload size={18} /> Upload XML
             </button>
@@ -281,7 +285,7 @@ export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUp
                             <tr 
                                 key={doc.id} 
                                 className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
-                                onClick={() => setSelectedDocument(doc)}
+                                onClick={() => { setSelectedDocument(doc); setActiveTab('items'); }}
                             >
                                 <td className="px-6 py-4">
                                     {doc.operation_type === 'exit' ? (
@@ -330,95 +334,124 @@ export const Documents: React.FC<DocumentsProps> = ({ companyId, documents, onUp
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
                 {/* Modal Header */}
-                <div className="bg-slate-900 text-white p-6 flex justify-between items-start shrink-0">
-                    <div>
-                        <div className="flex flex-wrap items-center gap-3 mb-2">
-                             <h2 className="text-xl font-bold">Detalhamento do Documento</h2>
-                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedDocument.operation_type === 'exit' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>
-                                {selectedDocument.operation_type === 'exit' ? 'NOTA DE SAÍDA' : 'NOTA DE ENTRADA'}
-                             </span>
-                        </div>
-                        <p className="text-sm text-slate-400 font-mono break-all">{selectedDocument.access_key}</p>
-                        <div className="flex flex-col md:flex-row gap-6 mt-4 text-sm">
-                            <div>
-                                <p className="text-slate-500 text-xs uppercase tracking-wider">Emitente</p>
-                                <p className="font-semibold">{selectedDocument.issuer_name || 'N/A'}</p>
-                                <p className="text-slate-400 text-xs">{selectedDocument.issuer_cnpj}</p>
+                <div className="bg-slate-900 text-white p-6 shrink-0">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <div className="flex flex-wrap items-center gap-3 mb-2">
+                                <h2 className="text-xl font-bold">Detalhamento do Documento</h2>
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedDocument.operation_type === 'exit' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>
+                                    {selectedDocument.operation_type === 'exit' ? 'NOTA DE SAÍDA' : 'NOTA DE ENTRADA'}
+                                </span>
                             </div>
-                            <div>
-                                <p className="text-slate-500 text-xs uppercase tracking-wider">Valor Total</p>
-                                <p className="font-bold text-xl text-emerald-400">
-                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedDocument.amount)}
-                                </p>
-                            </div>
+                            <p className="text-sm text-slate-400 font-mono break-all">{selectedDocument.access_key}</p>
                         </div>
+                        <button onClick={() => setSelectedDocument(null)} className="text-slate-400 hover:text-white transition-colors">
+                            <X size={24} />
+                        </button>
                     </div>
-                    <button onClick={() => setSelectedDocument(null)} className="text-slate-400 hover:text-white transition-colors">
-                        <X size={24} />
-                    </button>
+                    {/* Tabs */}
+                    <div className="mt-4 border-b border-slate-700">
+                        <button onClick={() => setActiveTab('items')} className={`px-4 py-2 text-sm font-medium ${activeTab === 'items' ? 'text-white border-b-2 border-blue-500' : 'text-slate-400'}`}>Itens da Nota</button>
+                        <button onClick={() => setActiveTab('audit')} className={`px-4 py-2 text-sm font-medium ${activeTab === 'audit' ? 'text-white border-b-2 border-blue-500' : 'text-slate-400'}`}>Histórico de Auditoria</button>
+                    </div>
                 </div>
 
-                {/* Modal Content - Items Table */}
+                {/* Modal Content */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Search size={18} className="text-indigo-600" />
-                        Itens da Nota Fiscal ({selectedDocument.items?.length || 0})
-                    </h3>
-                    
-                    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-sm min-w-[900px]">
-                            <thead className="bg-slate-100 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
-                                <tr>
-                                    <th className="px-4 py-3 text-left">Produto / Serviço</th>
-                                    <th className="px-4 py-3 text-left w-24">NCM / CFOP</th>
-                                    <th className="px-4 py-3 text-center w-28">CST PIS/COF</th>
-                                    <th className="px-4 py-3 text-right">Valor Item</th>
-                                    <th className="px-4 py-3 text-right">PIS/COFINS</th>
-                                    <th className="px-4 py-3 text-center">Ação</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {selectedDocument.items?.map((item, idx) => {
-                                    const cst = item.cstPis || item.cstCofins || '99';
-                                    const hasCredit = CREDIT_CSTS.includes(cst) && selectedDocument.operation_type === 'entry';
-                                    
-                                    return (
-                                        <tr key={idx} className="hover:bg-slate-50">
-                                            <td className="px-4 py-3">
-                                                <p className="font-medium text-slate-800 truncate max-w-xs" title={item.name}>{item.name}</p>
-                                            </td>
-                                            <td className="px-4 py-3 text-xs text-slate-500">
-                                                <div className="flex flex-col">
-                                                    <span>{item.ncm}</span>
-                                                    <span className="font-mono text-slate-400">{item.cfop}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold border ${
-                                                    hasCredit 
-                                                    ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
-                                                    : 'bg-slate-100 text-slate-500 border-slate-200'
-                                                }`}>
-                                                    {cst}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-right font-medium">
-                                                {item.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                                            </td>
-                                            <td className="px-4 py-3 text-right text-xs font-mono text-slate-600">
-                                                {(item.vPIS + item.vCOFINS).toFixed(2)}
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <button onClick={() => handleOpenCorrection(item)} className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mx-auto">
-                                                    <Edit size={12} /> Corrigir
-                                                </button>
-                                            </td>
+                    {activeTab === 'items' ? (
+                        <div>
+                            <h3 className="font-bold text-slate-800 mb-4">Itens da Nota Fiscal ({selectedDocument.items?.length || 0})</h3>
+                            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto custom-scrollbar">
+                                {/* Table for items... */}
+                                 <table className="w-full text-sm min-w-[900px]">
+                                    <thead className="bg-slate-100 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left">Produto / Serviço</th>
+                                            <th className="px-4 py-3 text-left w-48">CFOP</th>
+                                            <th className="px-4 py-3 text-center w-28">CST PIS/COF</th>
+                                            <th className="px-4 py-3 text-right">Valor Item</th>
+                                            <th className="px-4 py-3 text-right">PIS/COFINS</th>
+                                            <th className="px-4 py-3 text-center">Ação</th>
                                         </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {selectedDocument.items?.map((item, idx) => {
+                                            const cst = item.cstPis || item.cstCofins || '99';
+                                            const hasCredit = CREDIT_CSTS.includes(cst) && selectedDocument.operation_type === 'entry';
+                                            
+                                            return (
+                                                <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="px-4 py-3">
+                                                        <p className="font-medium text-slate-800 truncate max-w-xs" title={item.name}>{item.name}</p>
+                                                        <p className="text-xs text-slate-400">NCM: {item.ncm}</p>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-xs text-slate-500">
+                                                        <div className="flex items-center gap-2 group relative">
+                                                            <span className="font-mono bg-slate-200 text-slate-600 px-2 py-0.5 rounded">{item.cfop}</span>
+                                                            <BookOpen size={14} className="text-slate-400" />
+                                                            <div className="absolute left-0 bottom-full mb-2 w-72 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                                                {fiscalMapping.getCFOPDescription(item.cfop)}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                                            hasCredit 
+                                                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                                                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                        }`}>
+                                                            {cst}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right font-medium">
+                                                        {item.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right text-xs font-mono text-slate-600">
+                                                        {(item.vPIS + item.vCOFINS).toFixed(2)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <button onClick={() => handleOpenCorrection(item)} disabled={user.role === 'employee'} className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mx-auto disabled:opacity-50 disabled:cursor-not-allowed">
+                                                            <Edit size={12} /> Corrigir
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ) : (
+                        <div>
+                            <h3 className="font-bold text-slate-800 mb-4">Linha do Tempo de Alterações</h3>
+                            {selectedDocument.history && selectedDocument.history.length > 0 ? (
+                                <div className="space-y-4">
+                                    {selectedDocument.history.map(entry => (
+                                        <div key={entry.id} className="flex gap-4">
+                                            <div className="flex flex-col items-center">
+                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center ring-4 ring-slate-50">
+                                                    <Clock size={16} className="text-slate-500" />
+                                                </div>
+                                                <div className="w-px h-full bg-slate-200"></div>
+                                            </div>
+                                            <div className="pb-4 w-full">
+                                                <p className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</p>
+                                                <p className="font-semibold text-slate-700">{entry.action} <span className="text-slate-500 font-normal">por {entry.user_name}</span></p>
+                                                <p className="text-sm text-slate-600 mt-1">{entry.details}</p>
+                                                {entry.reason && (
+                                                    <p className="text-xs text-slate-500 mt-2 p-2 bg-slate-100 rounded border border-slate-200 italic">
+                                                        <strong>Justificativa:</strong> {entry.reason}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-slate-500 italic">Nenhuma alteração registrada para este documento.</p>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

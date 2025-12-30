@@ -34,6 +34,9 @@ export interface TaxCalculationResult {
   cofins: number;
   cofinsDebits: number;// New
   cofinsCredits: number;// New
+  icmsDebits: number; // New ICMS Fields
+  icmsCredits: number; // New ICMS Fields
+  icmsBalance: number; // New ICMS Fields
   totalTax: number;
   effectiveRate: number;
   analysis: string;
@@ -56,7 +59,53 @@ export interface TaxProfile {
 }
 
 
-// Database Entities (Supabase Mapped)
+// --- ENTERPRISE ARCHITECTURE TYPES ---
+
+export type UserRole = 'admin' | 'accountant' | 'employee' | 'client_viewer';
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+}
+
+// Simple history entry for a specific document
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  user_name: string;
+  action: string; 
+  details: string; 
+  reason?: string; 
+}
+
+// System-wide, immutable audit log for SOC2-like compliance
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  user_id: string;
+  user_name: string;
+  action: string; // Ex: 'UPDATE_COMPANY', 'CREATE_LEARNING'
+  target_entity: string; // Ex: 'companies', 'documents'
+  target_id: string;
+  old_value: any; // JSONB
+  new_value: any; // JSONB
+  reason: string; // Justificativa obrigatória
+}
+
+
+// --- DATABASE ENTITIES (SUPABASE MAPPED) ---
+
+export type ERPType = 'ContaAzul' | 'Bling' | 'Omie' | 'Tiny';
+
+export interface ERPIntegration {
+  type: ERPType;
+  status: 'connected' | 'disconnected' | 'error' | 'syncing';
+  last_sync?: string;
+  auth_data?: any; // To store tokens securely
+}
+
 export interface Company {
   id: string;
   created_at?: string;
@@ -67,6 +116,7 @@ export interface Company {
   user_id?: string; // For RLS (Row Level Security)
   cnae_principal?: string;
   tax_profile?: TaxProfile;
+  erp_integration?: ERPIntegration;
 }
 
 export interface InvoiceItem {
@@ -92,21 +142,22 @@ export interface InvoiceItem {
 export interface FiscalDocument {
   id: string;
   created_at?: string;
-  company_id: string; // Changed from companyId to match DB column
-  xml_content?: string; // Raw XML
-  access_key?: string; // Changed from accessKey
-  issuer_cnpj?: string; // Changed from issuerCNPJ
-  issuer_name?: string; // Changed from issuerName
+  company_id: string; 
+  xml_content?: string; 
+  access_key?: string; 
+  issuer_cnpj?: string; 
+  issuer_name?: string; 
   name: string;
   type: 'NFe' | 'NFCe' | 'CTe' | 'PDF';
-  operation_type: 'entry' | 'exit'; // Changed from operationType
+  operation_type: 'entry' | 'exit'; 
   date: string;
   status: 'processing' | 'classified' | 'error';
   confidence: number;
   amount: number; 
   items: InvoiceItem[];
+  history?: AuditEntry[]; // NEW: For simple audit trail
   // Campos totalizadores
-  total_icms: number; // Snake case for DB
+  total_icms: number; 
   total_pis: number;
   total_cofins: number;
   total_ipi: number;
@@ -128,16 +179,19 @@ export interface Obligation {
 
 export interface ValidationIssue {
   code: string;
-  severity: 'error' | 'warning'; // error bloqueia download, warning avisa
+  severity: 'error' | 'warning'; 
   message: string;
-  details?: string; // Ex: Chave da nota ou nome do item
+  details?: string; 
 }
 
 export interface ChatMessage {
-  role: 'user' | 'model';
+  role: 'user' | 'model' | 'tool';
   text: string;
+  tool_calls?: any[];
+  tool_outputs?: any[];
   timestamp: Date;
 }
+
 
 export interface SystemLog {
   id: string;
@@ -175,26 +229,54 @@ export interface InvestmentSuggestion {
   impact: 'high' | 'medium' | 'low';
 }
 
-// BFF Props
+// --- PIPELINES / AUTOMATION ---
+export interface Notification {
+  id: string;
+  company_id: string;
+  timestamp: string;
+  type: 'recommendation' | 'error' | 'success' | 'info';
+  title: string;
+  description: string;
+  is_read: boolean;
+  link_to?: string; // Path to navigate on click
+}
+
+export interface MonthlyClosing {
+  id: string;
+  company_id: string;
+  competence: string; // "YYYY-MM"
+  status: 'completed' | 'with_errors';
+  closed_at: string;
+  closed_by: string;
+  total_revenue: number;
+  total_tax: number;
+  report_url?: string;
+  calculation_result: TaxCalculationResult;
+}
+
+// --- BFF Props ---
 export interface TaxCalculatorProps {
     companyDocuments: FiscalDocument[];
     onCalculateLog: (msg: string) => void;
     company: Company;
     isDemoMode: boolean;
+    user: AuthenticatedUser;
 }
 
 export interface AIAssistantProps {
     company: Company;
     isDemoMode: boolean;
+    user: AuthenticatedUser;
 }
 
 export interface AILearning {
   id: string;
   created_at?: string;
   company_id: string;
+  user_id: string; 
   learning_type: 'cst_correction' | 'cfop_correction' | 'expense_classification';
-  context: Record<string, any>; // e.g., { itemName: 'CONSULTORIA XPTO' }
-  corrected_value: Record<string, any>; // e.g., { cstPis: '50', cfop: '1933' }
+  context: Record<string, any>; 
+  corrected_value: Record<string, any>; 
   justification: string;
 }
 
@@ -202,5 +284,67 @@ export interface DocumentsProps {
   companyId: string;
   documents: FiscalDocument[];
   onUploadSuccess: () => void;
-  onAddLearning: (learning: Omit<AILearning, 'id' | 'created_at'>) => void;
+  onAddLearning: (learning: Omit<AILearning, 'id' | 'created_at'>, reason: string) => void;
+  user: AuthenticatedUser;
+}
+
+export interface CompaniesProps {
+    companies: Company[];
+    onRefresh: () => void;
+    onSelectCompany: (id: string) => void;
+    selectedCompanyId: string;
+    user: AuthenticatedUser;
+}
+
+
+// --- ERP NORMALIZATION LAYER ---
+
+// Raw data structures as they might come from an ERP API
+export interface RawInvoice {
+  id: string; // ERP's internal ID
+  numero: string;
+  data_emissao: string; // "2024-05-10"
+  valor_total: number;
+  tipo: 'ENTRADA' | 'SAIDA';
+  cliente_fornecedor: { nome: string; cnpj_cpf: string; };
+  itens: Array<{
+    codigo: string;
+    descricao: string;
+    quantidade: number;
+    valor_unitario: number;
+  }>;
+}
+
+export interface RawXML {
+  id: string; // ERP's internal ID
+  chave_acesso: string;
+  conteudo_xml: string; // Base64 or plain text XML
+}
+
+export interface RawServiceInvoice {
+    id: string; // ERP's internal ID
+    numero: string;
+    data_competencia: string;
+    valor: number;
+    descricao_servico: string;
+    tomador: { razao_social: string; cnpj: string; };
+    prestador: { razao_social: string; cnpj: string; };
+}
+
+export interface CompanyMetadata {
+    nome_empresarial: string;
+    cnpj: string;
+}
+
+// Common types for the provider interface
+export interface AuthResponse {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number; // seconds
+}
+
+export interface FetchParams {
+    startDate: string; // "YYYY-MM-DD"
+    endDate: string; // "YYYY-MM-DD"
+    page?: number;
 }

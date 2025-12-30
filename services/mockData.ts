@@ -1,6 +1,14 @@
-import { Company, FiscalDocument, Obligation, SystemLog, InvoiceItem } from '../types';
+import { Company, FiscalDocument, Obligation, SystemLog, InvoiceItem, AuthenticatedUser, AuditEntry, Notification, AuditLog } from '../types';
 
 const MOCK_COMPANY_ID = 'demo-company-123';
+const MOCK_USER_ID = 'user-demo-accountant-987';
+
+export const mockUser: AuthenticatedUser = {
+  id: MOCK_USER_ID,
+  email: 'contador.demo@contaflux.com',
+  name: 'Contador de Demonstração',
+  role: 'accountant', // Change to 'employee' or 'admin' to test RBAC
+};
 
 export const mockCompany: Company = {
   id: MOCK_COMPANY_ID,
@@ -13,8 +21,31 @@ export const mockCompany: Company = {
   tax_profile: {
     isMonofasico: false,
     industryType: 'servicos_gerais'
+  },
+  erp_integration: {
+      type: 'ContaAzul',
+      status: 'disconnected'
   }
 };
+
+const mockAuditHistory: AuditEntry[] = [
+    {
+        id: 'audit-1',
+        timestamp: '2024-05-20T10:00:00Z',
+        user_name: 'Sistema IA',
+        action: 'CLASSIFICAÇÃO AUTOMÁTICA',
+        details: 'Documento processado via XML. Operação de entrada classificada com base no CFOP 1933.',
+    },
+    {
+        id: 'audit-2',
+        timestamp: '2024-05-21T14:35:10Z',
+        user_name: 'João da Silva (Contador)',
+        action: 'CORREÇÃO MANUAL DE CST',
+        details: 'CST de PIS/COFINS do item "LICENÇA DE SOFTWARE" alterado de 70 para 50.',
+        reason: 'Aquisição de software utilizado diretamente na prestação de serviço (insumo), conforme Lei 10.833/03 e solução de consulta COSIT nº 191/2017.',
+    }
+]
+
 
 export const mockDocuments: FiscalDocument[] = [
   // Mês Março/2024
@@ -34,6 +65,7 @@ export const mockDocuments: FiscalDocument[] = [
     access_key: '41240399888777000155550010009876541000000023',
     issuer_name: 'FORNECEDOR DE SOFTWARE LTDA', issuer_cnpj: '99.888.777/0001-55',
     total_icms: 9600, total_pis: 1320, total_cofins: 6080, total_ipi: 0,
+    history: mockAuditHistory, // ADDING AUDIT HISTORY
     items: [
       { name: 'LICENÇA DE SOFTWARE ERP ANUAL', ncm: '85234990', cfop: '1933', cst: '51', cstPis: '50', cstCofins: '50', amount: 80000, vICMS: 9600, pICMS: 12, vPIS: 1320, pPIS: 1.65, vCOFINS: 6080, pCOFINS: 7.6, vIPI: 0, pIPI: 0 },
     ]
@@ -81,4 +113,65 @@ export const mockObligations: Obligation[] = [
 export const mockLogs: SystemLog[] = [
   { id: 'log-1', company_id: MOCK_COMPANY_ID, action: 'Login', details: 'Acesso via Modo Demonstração', timestamp: new Date().toISOString(), type: 'info' },
   { id: 'log-2', company_id: MOCK_COMPANY_ID, action: 'Cadastro', details: 'Empresa de demonstração carregada.', timestamp: new Date().toISOString(), type: 'success' },
+];
+
+export const mockAuditLogs: AuditLog[] = [
+    {
+        id: 'audit-log-1',
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        user_id: MOCK_USER_ID,
+        user_name: 'Contador de Demonstração',
+        action: 'UPDATE_COMPANY',
+        target_entity: 'companies',
+        target_id: MOCK_COMPANY_ID,
+        old_value: { name: 'ContaFlux Demo Ltda', cnae_principal: '6201500' },
+        new_value: { name: 'ContaFlux Demo S.A.', cnae_principal: '6201501' },
+        reason: 'Correção da Razão Social e atualização do CNAE conforme cartão CNPJ.'
+    },
+    {
+        id: 'audit-log-2',
+        timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+        user_id: MOCK_USER_ID,
+        user_name: 'Contador de Demonstração',
+        action: 'CREATE_AI_LEARNING',
+        target_entity: 'ai_learnings',
+        target_id: 'learn_12345',
+        old_value: null,
+        new_value: { context: { itemName: 'LICENÇA DE SOFTWARE' }, corrected_value: { cstPis: '50' } },
+        reason: 'Software é insumo essencial para a atividade fim da empresa.'
+    }
+];
+
+
+export const mockNotifications: Notification[] = [
+    {
+        id: 'notif-1',
+        company_id: MOCK_COMPANY_ID,
+        timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+        type: 'recommendation',
+        title: 'Oportunidade de Crédito (PIS/COFINS)',
+        description: 'Nosso pipeline detectou despesas com software que podem ser elegíveis para crédito. Revise a classificação do CST.',
+        is_read: false,
+        link_to: 'documents'
+    },
+    {
+        id: 'notif-2',
+        company_id: MOCK_COMPANY_ID,
+        timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        type: 'error',
+        title: 'XML Duplicado Ignorado',
+        description: 'O arquivo "NFe-Saida-Mar24.xml" foi importado novamente e ignorado para evitar duplicidade na apuração.',
+        is_read: false,
+        link_to: 'documents'
+    },
+    {
+        id: 'notif-3',
+        company_id: MOCK_COMPANY_ID,
+        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        type: 'success',
+        title: 'Fechamento de Março/2024 Concluído',
+        description: 'O fechamento automático do mês 03/2024 foi concluído com sucesso. O relatório já está disponível.',
+        is_read: true,
+        link_to: 'closings'
+    }
 ];
